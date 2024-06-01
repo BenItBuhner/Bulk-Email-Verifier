@@ -17,4 +17,8 @@ What to import via command line:
 
 pip install email_validator dnspython tqdm
 
+Alt import (if script is "invalid"):
+
+pip install email-validator dnspython tqdm
+
 Attempt to install all of these, as one or two may not work properly, as GPT-4 provided different libraries to import, and was never sure. Yes, this was made mostly with ChatGPT in Microsoft’s Copilot!
