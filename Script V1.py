@@ -6,8 +6,26 @@ import dns.resolver
 from tqdm import tqdm
 
 def verify_email(email):
-    # ... (same as before)
-    # Make sure your function returns a tuple with email and server response
+    try:
+        v = validate_email(email) # validate and get info
+        email = v["email"] # replace with normalized form
+        domain = v["domain"]
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        mx_record = str(mx_records[0].exchange)
+        server = smtplib.SMTP(mx_record, port=587, timeout=10) # Use port 587
+        server.starttls() # Upgrade the connection to TLS
+        server.set_debuglevel(0)
+        server.ehlo()
+        server.mail('')
+        code, message = server.rcpt(str(email))
+        server.quit()
+
+        if code == 250:
+            return (email, "valid")
+        else:
+            return (email, "invalid")
+    except Exception as e:
+        return (email, "unknown")
 
 if __name__ == "__main__":
     with open('emails.csv', 'r') as f:
