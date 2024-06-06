@@ -1,4 +1,6 @@
 # Bulk-Email-Verifier
+CURRENTLY NOT UP-TO-DATE: WILL BE REFRESHED LATER
+
 Bulk email verifier, made with the help of GPT-4, that supports the importing of CSV files with emails, and will export four different CSVs, varying by validity.
 
 How to use:
