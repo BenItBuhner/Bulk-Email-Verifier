@@ -1,149 +1,170 @@
 import csv
-import re
 import smtplib
+import dns.resolver
 import threading
-import queue
-import socket
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
-# Email details for SMTP connection
-SMTP_USERNAME = "ben.scott@gmail.com"
-SMTP_PASSWORD = "PrettyFartSprinkles69"
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587  # Using port 587 for STARTTLS
+# Define categories
+VALID = "Valid"
+INVALID = "Invalid"
+SPAM_TRAP = "Spam Traps & Temporary Inboxes"
+BUSINESS = "Business Emails"
+BLOCKED = "Server Block & Timeout"
 
-# Regex pattern for basic email validation
-EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
+# Business email keywords
+BUSINESS_KEYWORDS = ["info", "help", "support", "contact", "forgotpassword", "passwordhelp", "sales"]
 
-# Define categories for email verification results
-categories = {
-    "valid": [],
-    "invalid": [],
-    "blocked_unsure": [],
-    "typos": [],
-    "spam_trap_temporary": [],
-    "business": [],
-    "role_based": [],
-}
+# Sample list of spam trap and temporary inbox domains
+SPAM_TRAP_DOMAINS = ["mailinator.com", "10minutemail.com", "guerrillamail.com"]
 
-# Helper function to validate email format
-def validate_email_format(email):
-    return re.match(EMAIL_REGEX, email) is not None
+# File names
+INPUT_FILE = "emails.csv"
+OUTPUT_FILE_ALL = "all_emails.csv"
+OUTPUT_FILE_VALID = "valid_emails.csv"
+OUTPUT_FILE_INVALID = "invalid_emails.csv"
+OUTPUT_FILE_SPAM_TRAP = "spam_trap_emails.csv"
+OUTPUT_FILE_BUSINESS = "business_emails.csv"
+OUTPUT_FILE_BLOCKED = "blocked_emails.csv"
 
-# Helper function to categorize emails based on SMTP response
-def categorize_email(email, response, category):
-    categories[category].append((email, response, category))
+# SMTP details
+SMTP_SUBDOMAIN = "smtp.example.com"
+SMTP_EMAIL = "your_email@example.com"
+SMTP_PASSWORD = "your_password"
 
-# Helper function to check if the email is a business or role-based email
-def is_role_based_email(email):
-    local_part = email.split('@')[0]
-    role_based_keywords = ["info", "help", "support", "contact", "sales", "admin"]
-    return any(keyword in local_part for keyword in role_based_keywords)
+# Thread/worker count
+NUM_WORKERS = 10
 
-# Helper function to verify email using SMTP
-def verify_email_smtp(email):
-    try:
-        smtp = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        smtp.ehlo_or_helo_if_needed()  # Send EHLO or HELO command
-        smtp.starttls()
-        smtp.ehlo_or_helo_if_needed()  # Send EHLO or HELO again after STARTTLS
-        smtp.login(SMTP_USERNAME, SMTP_PASSWORD)  # Authenticate
-
-        smtp.mail(SMTP_USERNAME)
-        code, message = smtp.rcpt(email)
-
-        smtp.quit()
-
-        if code == 250:
-            return "valid", message.decode()
-        elif code == 550:
-            return "invalid", message.decode()
-        elif code in {421, 450, 451, 452}:
-            # Transient errors
-            return "blocked_unsure", message.decode()
-        else:
-            return "blocked_unsure", message.decode()
-    except smtplib.SMTPRecipientsRefused as e:
-        return "invalid", str(e)
-    except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError) as e:
-        return "blocked_unsure", str(e)
-    except Exception as e:
-        return "blocked_unsure", str(e)
-
-# Function to check if the domain is valid by checking MX records
-def is_valid_domain(email):
-    domain = email.split('@')[1]
-    try:
-        mx_records = socket.gethostbyname(domain)
-        return True
-    except socket.gaierror:
-        return False
-
-# Function to handle email verification for a thread
-def worker(q, pbar, lock, save_interval):
-    processed = 0
-    while not q.empty():
-        email = q.get()
-        if not validate_email_format(email):
-            categorize_email(email, "Invalid format", "typos")
-        elif is_role_based_email(email):
-            categorize_email(email, "Role-based email", "role_based")
-        elif not is_valid_domain(email):
-            categorize_email(email, "Invalid domain", "invalid")
-        else:
-            category, response = verify_email_smtp(email)
-            categorize_email(email, response, category)
-        
-        processed += 1
-        if processed % save_interval == 0:
-            with lock:
-                write_results_to_csv()
-        
-        pbar.update(1)
-        q.task_done()
-
-# Function to read emails from CSV file
-def read_emails_from_csv(file_path):
+def load_emails(filename):
     emails = []
-    with open(file_path, newline='') as csvfile:
+    with open(filename, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            emails.append(row['email'])
+            emails.append(row['Email'])
     return emails
 
-# Function to write results to CSV files
-def write_results_to_csv():
-    for category, emails in categories.items():
-        with open(f"{category}.csv", 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(["email", "response", "category"])
-            for email, response, category in emails:
-                writer.writerow([email, response, category])
+def save_emails(filename, email_data):
+    with open(filename, 'w', newline='') as csvfile:
+        fieldnames = ['Email', 'MX', 'HELO1', 'FROM1', 'RCPT1', 'HELO2', 'FROM2', 'RCPT2', 'Interpretation']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for data in email_data:
+            writer.writerow(data)
 
-# Main function to initiate email verification process
-def main():
-    emails = read_emails_from_csv("emails.csv")
-    q = queue.Queue()
-    for email in emails:
-        q.put(email)
+def syntax_check(email):
+    return "@" in email and "." in email.split("@")[1]
 
-    pbar = tqdm(total=len(emails), desc="Verifying emails", unit="email")
+def is_spam_trap(email):
+    domain = email.split('@')[1]
+    return domain in SPAM_TRAP_DOMAINS
 
-    threads = []
-    num_threads = 50  # Adjust as needed
-    save_interval = 50  # Save results after every 50 emails
-    lock = threading.Lock()
+def is_business_email(email):
+    user = email.split('@')[0]
+    return any(keyword in user for keyword in BUSINESS_KEYWORDS)
 
-    for _ in range(num_threads):
-        thread = threading.Thread(target=worker, args=(q, pbar, lock, save_interval))
-        thread.start()
-        threads.append(thread)
+def mx_lookup(domain):
+    try:
+        records = dns.resolver.resolve(domain, 'MX')
+        return records[0].exchange.to_text()
+    except:
+        return None
 
-    for thread in threads:
-        thread.join()
+def smtp_verify(email, mx_record):
+    try:
+        server = smtplib.SMTP(SMTP_SUBDOMAIN)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.ehlo_or_helo_if_needed()
+        from_response = server.mail(SMTP_EMAIL)
+        rcpt_response = server.rcpt(email)
+        server.quit()
+        return from_response[0], rcpt_response[0]
+    except:
+        return None, None
 
-    pbar.close()
-    write_results_to_csv()
+def verify_email(email):
+    result = {
+        'Email': email,
+        'MX': '',
+        'HELO1': '',
+        'FROM1': '',
+        'RCPT1': '',
+        'HELO2': '',
+        'FROM2': '',
+        'RCPT2': '',
+        'Interpretation': ''
+    }
+    domain = email.split('@')[1]
+    result['MX'] = mx_lookup(domain)
+    if not result['MX']:
+        result['Interpretation'] = INVALID
+        return result
+
+    result['HELO1'], result['RCPT1'] = smtp_verify(email, result['MX'])
+    if result['RCPT1'] == 250:
+        result['Interpretation'] = VALID
+    elif result['RCPT1'] == 550:
+        result['Interpretation'] = INVALID
+    else:
+        result['HELO2'], result['RCPT2'] = smtp_verify(email, result['MX'])
+        if result['RCPT2'] == 250:
+            result['Interpretation'] = VALID
+        else:
+            result['Interpretation'] = BLOCKED
+
+    return result
+
+def categorize_email(email):
+    if is_spam_trap(email):
+        return {'Email': email, 'Interpretation': SPAM_TRAP}
+    elif is_business_email(email):
+        return {'Email': email, 'Interpretation': BUSINESS}
+    return None
+
+def worker(email):
+    result = {
+        'Email': email,
+        'MX': '',
+        'HELO1': '',
+        'FROM1': '',
+        'RCPT1': '',
+        'HELO2': '',
+        'FROM2': '',
+        'RCPT2': '',
+        'Interpretation': ''
+    }
+    if not syntax_check(email):
+        result['Interpretation'] = INVALID
+    else:
+        categorized = categorize_email(email)
+        if categorized:
+            result.update(categorized)
+        else:
+            result = verify_email(email)
+    return result
+
+def verify_emails(emails):
+    results = []
+    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        for result in tqdm(executor.map(worker, emails), total=len(emails), desc="Verifying emails"):
+            results.append(result)
+    return results
+
+def save_results(results):
+    valid_emails = [r for r in results if r['Interpretation'] == VALID]
+    invalid_emails = [r for r in results if r['Interpretation'] == INVALID]
+    spam_trap_emails = [r for r in results if r['Interpretation'] == SPAM_TRAP]
+    business_emails = [r for r in results if r['Interpretation'] == BUSINESS]
+    blocked_emails = [r for r in results if r['Interpretation'] == BLOCKED]
+
+    save_emails(OUTPUT_FILE_ALL, results)
+    save_emails(OUTPUT_FILE_VALID, valid_emails)
+    save_emails(OUTPUT_FILE_INVALID, invalid_emails)
+    save_emails(OUTPUT_FILE_SPAM_TRAP, spam_trap_emails)
+    save_emails(OUTPUT_FILE_BUSINESS, business_emails)
+    save_emails(OUTPUT_FILE_BLOCKED, blocked_emails)
 
 if __name__ == "__main__":
-    main()
+    emails = load_emails(INPUT_FILE)
+    results = verify_emails(emails)
+    save_results(results)
