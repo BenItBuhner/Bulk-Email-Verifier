@@ -3,18 +3,17 @@ import smtplib
 import re
 import logging
 import os
-import requests
 from tqdm import tqdm
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import dns.resolver
 
 # Configuration
-EMAIL = "placeholder@example.com"
-PASSWORD = "ExamplePass"
+EMAIL = "locamtv@gmail.com"
+PASSWORD = "SogBurb"
 PORT = 25
-THREAD_COUNT = 50
-SERVER_TIMEOUT = 25
+THREAD_COUNT = 175
+SERVER_TIMEOUT = 12
 
 # Logging setup
 logging.basicConfig(filename='email_verification.log', level=logging.INFO, 
@@ -32,11 +31,39 @@ INVALID_CODES = [550, 551, 552, 553, 554]
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 # Cache for MX records
-mx_record_cache = {}
+mx_record_cache = {
+    "outlook.com": "outlook-com.olc.protection.outlook.com",
+    "hotmail.com": "hotmail-com.olc.protection.outlook.com"
+}
+
+# Domain corrections
+DOMAIN_CORRECTIONS = {
+    "hotmail.com": [
+        "hotmnail.com", "hotmail.net", "hotmaill.com", "hotmial.com", "hotmil.com", "hotmai.com", "hotmaul.com", "hotmal.com"
+    ],
+    "gmail.com": [
+        "gmail.net", "gmnail.com", "gmail.co", "gmial.com", "gamil.com", "gmaill.com", "gmial.com", "gmaol.com", "gmaik.com", "gmaio.com"
+    ],
+    "outlook.com": [
+        "uotlook.com", "outlook.net", "outllook.com", "otulook.com", "outllok.com", "otlook.com", "outlok.com", "oulook.com"
+    ]
+}
 
 # Function to check email syntax
 def is_valid_email_syntax(email):
     return re.match(EMAIL_REGEX, email) is not None
+
+# Function to correct common domain typos
+def correct_domain(email):
+    local_part, domain = email.split('@')
+    for correct_domain, typos in DOMAIN_CORRECTIONS.items():
+        if domain == correct_domain:
+            return email
+        if domain in typos:
+            corrected_email = f"{local_part}@{correct_domain}"
+            logging.info(f"Corrected domain for {email} to {corrected_email}")
+            return corrected_email
+    return email
 
 # Function to filter business emails
 def is_business_email(email):
@@ -99,14 +126,15 @@ def verify_email(email):
 
 # Multithreading worker function
 def worker(email, results):
-    if not is_valid_email_syntax(email):
+    corrected_email = correct_domain(email)
+    if not is_valid_email_syntax(corrected_email):
         results["invalid"].append(email)
-    elif is_spam_trap(email):
+    elif is_spam_trap(corrected_email):
         results["spam_trap"].append(email)
-    elif is_business_email(email):
+    elif is_business_email(corrected_email):
         results["business"].append(email)
     else:
-        result, mx_record, from_response, to_response = verify_email(email)
+        result, mx_record, from_response, to_response = verify_email(corrected_email)
         if result == "no_server_response":
             results["no_server_response"].append(email)
         elif result == "server_block":
@@ -117,6 +145,7 @@ def worker(email, results):
             results["invalid"].append(email)
         results["all"].append({
             "Email": email,
+            "Corrected Email": corrected_email,
             "MX Record": mx_record,
             "SMTP Handshake": from_response,
             "SMTP FROM": from_response,
@@ -130,6 +159,14 @@ def main():
     with open("emails.csv", newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         emails = [row["Email"] for row in reader]
+
+    # Ensure all emails contain the '@' character
+    emails = [email for email in emails if '@' in email]
+
+    # Lookup and cache MX records before verification
+    domains = {email.split('@')[1] for email in emails}
+    for domain in tqdm(domains, desc="Looking up MX records", ncols=100):
+        get_mx_record(domain)
 
     results = defaultdict(list)
     pbar = tqdm(total=len(emails), desc="Verifying emails", ncols=100)
@@ -157,12 +194,13 @@ def main():
     save_results("business_emails.csv", results["business"])
 
     with open("Exports/all_emails.csv", "w", newline='') as csvfile:
-        fieldnames = ["Email", "MX Record", "SMTP Handshake", "SMTP FROM", "SMTP RCPT", "Interpretation"]
+        fieldnames = ["Email", "Corrected Email", "MX Record", "SMTP Handshake", "SMTP FROM", "SMTP RCPT", "Interpretation"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for entry in results["all"]:
             writer.writerow({
                 "Email": entry["Email"],
+                "Corrected Email": entry["Corrected Email"],
                 "MX Record": entry["MX Record"],
                 "SMTP Handshake": entry["SMTP Handshake"],
                 "SMTP FROM": entry["SMTP FROM"],
