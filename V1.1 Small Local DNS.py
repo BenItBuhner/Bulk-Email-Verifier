@@ -9,11 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 import dns.resolver
 
 # Configuration
-EMAIL = "locamtv@gmail.com"
-PASSWORD = "SogBurb"
+EMAIL = "placeholder@example.com"
+PASSWORD = "examplepass"
 PORT = 25
-THREAD_COUNT = 175
-SERVER_TIMEOUT = 12
+THREAD_COUNT = 50
+SERVER_TIMEOUT = 25
 
 # Logging setup
 logging.basicConfig(filename='email_verification.log', level=logging.INFO, 
