@@ -10,7 +10,7 @@ import dns.resolver
 
 # Configuration
 EMAIL = "placeholder@example.com"
-PASSWORD = "examplepass"
+PASSWORD = "ExamplePass"
 PORT = 25
 THREAD_COUNT = 50
 SERVER_TIMEOUT = 25
