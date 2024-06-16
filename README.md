@@ -2,9 +2,9 @@
 
 ### Prerequisites
 - Python 3.x installed on your system.
-- `requests` and `tqdm` libraries installed. You can install them using pip:
+- `dnspython`, `requests`, and `tqdm` libraries installed. You can install them using pip:
   ```bash
-  pip install requests tqdm
+  pip install dnspython requests tqdm
   ```
 
 ### Configuration
