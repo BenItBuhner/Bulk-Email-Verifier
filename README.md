@@ -9,7 +9,7 @@
 
 ### Configuration
 1. **Set Up Your Credentials**: Replace `your-email@example.com` and `your-password` with your actual SMTP credentials.
-2. **Specify the SMTP Port**: The default port is set to `25`. Change it if your SMTP server uses a different port.
+2. **Specify the SMTP Port**: The default port is set to `25`. Change it if your SMTP server uses a different port. Please alter the code as well to work correctly with your aqdjusted port.
 3. **Adjust Thread Count**: `THREAD_COUNT` is set to `10`. Modify this number based on your system's capabilities and the number of emails you plan to verify.
 4. **Server Timeout**: `SERVER_TIMEOUT` is set to `10` seconds. Adjust this value based on the expected response time of the SMTP servers you're querying.
 
