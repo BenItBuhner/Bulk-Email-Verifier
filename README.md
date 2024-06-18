@@ -4,7 +4,7 @@
 
 #### 1. Prerequisites
 
-Ensure you have Python installed on your system. You can download it from [python.org](https://www.python.org/). It's recommended to use Python 3.6 or higher.
+Ensure you have Python installed on your system. It's recommended to use Python 3.6 or higher.
 
 #### 2. Install Required Packages
 
@@ -21,7 +21,6 @@ Create a directory for your project and ensure it has the following structure:
 ```
 email_verification/
 |-- emails.csv
-|-- spam-domains.txt
 |-- MX_Records.csv
 |-- email_verification.py
 ```
@@ -33,7 +32,7 @@ email_verification/
 
 #### 4. Script Content
 
-Copy the provided Python script into `email_verification.py`.
+Copy the provided Python script into `V1.2 Small.py`.
 
 ### Using the Script
 
@@ -48,17 +47,7 @@ user2@example.com
 ...
 ```
 
-#### 2. Preparing `spam-domains.txt`
-
-Add any known spam or phishy domains to `spam-domains.txt`, each on a new line. Example:
-
-```
-spamdomain.com
-phishingsite.org
-malicious.co
-```
-
-#### 3. Running the Script
+#### 2. Running the Script
 
 Open your terminal or command prompt, navigate to the directory containing your script, and run:
 
@@ -84,11 +73,11 @@ You can modify the following configurations in the script:
 
 - **EMAIL**: The email address used for SMTP verification.
 - **PASSWORD**: The password for the above email (if needed for SMTP authentication).
-- **PORT**: The port used for SMTP (default is 25).
-- **THREAD_COUNT**: The number of threads for concurrent processing (default is 175).
-- **SERVER_TIMEOUT**: The timeout for server connections (default is 12 seconds).
+- **PORT**: The port used for SMTP (default & recommended is 25).
+- **THREAD_COUNT**: The number of threads for concurrent processing (default is 75).
+- **SERVER_TIMEOUT**: The timeout for server connections (default is 25 seconds).
 - **REFRESH_MX_RECORDS**: Set to `True` to refresh MX records, or `False` to use cached records.
-- **AOL_YAHOO_POLICY**: Set to either `valid` or `invalid` to treat AOL and Yahoo emails accordingly.
+- **AOL_YAHOO_POLICY**: Set to either `valid` or `invalid` to treat AOL and Yahoo emails accordingly, due to their catch-all nature.
 
 ### Maintaining the Script
 
