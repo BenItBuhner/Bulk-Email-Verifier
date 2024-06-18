@@ -13,7 +13,7 @@ EMAIL = "emailaddress@example.com"
 PASSWORD = "PassHere"
 PORT = 25
 THREAD_COUNT = 75
-SERVER_TIMEOUT = 20
+SERVER_TIMEOUT = 25
 REFRESH_MX_RECORDS = True  # Set this to True to refresh MX records
 AOL_YAHOO_POLICY = "valid"  # Set to either "valid" or "invalid"
 
