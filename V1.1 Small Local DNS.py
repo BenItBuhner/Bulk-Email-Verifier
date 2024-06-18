@@ -9,11 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 import dns.resolver
 
 # Configuration
-EMAIL = "placeholder@example.com"
-PASSWORD = "ExamplePass"
+EMAIL = "emailaddress@example.com"
+PASSWORD = "PassHere"
 PORT = 25
-THREAD_COUNT = 50
-SERVER_TIMEOUT = 25
+THREAD_COUNT = 75
+SERVER_TIMEOUT = 20
+REFRESH_MX_RECORDS = True  # Set this to True to refresh MX records
+AOL_YAHOO_POLICY = "valid"  # Set to either "valid" or "invalid"
 
 # Logging setup
 logging.basicConfig(filename='email_verification.log', level=logging.INFO, 
@@ -31,10 +33,7 @@ INVALID_CODES = [550, 551, 552, 553, 554]
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 # Cache for MX records
-mx_record_cache = {
-    "outlook.com": "outlook-com.olc.protection.outlook.com",
-    "hotmail.com": "hotmail-com.olc.protection.outlook.com"
-}
+mx_record_cache = {}
 
 # Domain corrections
 DOMAIN_CORRECTIONS = {
@@ -48,6 +47,29 @@ DOMAIN_CORRECTIONS = {
         "uotlook.com", "outlook.net", "outllook.com", "otulook.com", "outllok.com", "otlook.com", "outlok.com", "oulook.com"
     ]
 }
+
+# Load MX records from CSV file
+def load_mx_records():
+    if os.path.exists("MX_Records.csv") and not REFRESH_MX_RECORDS:
+        with open("MX_Records.csv", "r") as file:
+            reader = csv.reader(file)
+            next(reader)  # Skip header
+            for row in reader:
+                domain = row[0]
+                mx_records = row[1:]
+                mx_record_cache[domain] = mx_records
+            logging.info("Loaded MX records from MX_Records.csv")
+    else:
+        logging.info("MX_Records.csv not found or refresh requested. Will fetch MX records.")
+
+# Save MX records to CSV file
+def save_mx_records():
+    with open("MX_Records.csv", "w", newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Email domain", "MX Record #1", "MX Record #2", "MX Record #3", "MX Record #4", "MX Record #5"])
+        for domain, mx_records in mx_record_cache.items():
+            writer.writerow([domain] + mx_records)
+        logging.info("Saved MX records to MX_Records.csv")
 
 # Function to check email syntax
 def is_valid_email_syntax(email):
@@ -75,54 +97,55 @@ def is_spam_trap(email):
     domain = email.split('@')[1]
     return domain in SPAM_TRAP_DOMAINS
 
-# Function to get MX record for a domain using dnspython
-def get_mx_record(domain):
+# Function to get MX records for a domain using dnspython
+def get_mx_records(domain):
     if domain in mx_record_cache:
         return mx_record_cache[domain]
 
     resolver = dns.resolver.Resolver(configure=False)
     resolver.nameservers = ['8.8.8.8', '8.8.4.4']  # Google's DNS servers
 
-    logging.debug(f"Attempting to resolve MX record for domain: {domain}")
+    logging.debug(f"Attempting to resolve MX records for domain: {domain}")
 
     try:
         answers = resolver.resolve(domain, 'MX')
-        mx_record = str(answers[0].exchange).rstrip('.')
-        mx_record_cache[domain] = mx_record
-        logging.debug(f"Resolved MX record for {domain}: {mx_record}")
-        return mx_record
+        mx_records = [str(rdata.exchange).rstrip('.') for rdata in answers]
+        mx_record_cache[domain] = mx_records
+        logging.debug(f"Resolved MX records for {domain}: {mx_records}")
+        return mx_records
     except dns.resolver.NXDOMAIN:
-        logging.error(f"MX record for domain {domain} does not exist.")
-        return None
+        logging.error(f"MX records for domain {domain} do not exist.")
+        return []
     except dns.resolver.Timeout:
-        logging.error(f"Timed out while fetching MX record for domain {domain}.")
-        return None
+        logging.error(f"Timed out while fetching MX records for domain {domain}.")
+        return []
     except dns.resolver.NoAnswer:
         logging.error(f"No answer for MX query for domain {domain}.")
-        return None
+        return []
     except Exception as e:
-        logging.error(f"Error fetching MX record for {domain}: {e}")
-        return None
+        logging.error(f"Error fetching MX records for {domain}: {e}")
+        return []
 
 # SMTP verification function
 def verify_email(email):
     domain = email.split('@')[1]
-    mx_record = get_mx_record(domain)
-    if not mx_record:
+    mx_records = get_mx_records(domain)
+    if not mx_records:
         return "no_server_response", None, None, None
 
-    try:
-        with smtplib.SMTP(mx_record, PORT, timeout=SERVER_TIMEOUT) as server:
-            server.set_debuglevel(0)
-            server.ehlo()
-            from_response = server.mail(EMAIL)
-            to_response = server.rcpt(email)
-            return (to_response[0], mx_record, from_response, to_response)
-    except smtplib.SMTPServerDisconnected:
-        return "server_block", None, None, None
-    except Exception as e:
-        logging.error(f"Error verifying email {email}: {e}")
-        return "no_server_response", None, None, None
+    for mx_record in mx_records:
+        try:
+            with smtplib.SMTP(mx_record, PORT, timeout=SERVER_TIMEOUT) as server:
+                server.set_debuglevel(0)
+                server.ehlo()
+                from_response = server.mail(EMAIL)
+                to_response = server.rcpt(email)
+                return (to_response[0], mx_record, from_response, to_response)
+        except smtplib.SMTPServerDisconnected:
+            return "server_block", None, None, None
+        except Exception as e:
+            logging.error(f"Error verifying email {email}: {e}")
+    return "no_server_response", None, None, None
 
 # Multithreading worker function
 def worker(email, results):
@@ -134,27 +157,45 @@ def worker(email, results):
     elif is_business_email(corrected_email):
         results["business"].append(email)
     else:
-        result, mx_record, from_response, to_response = verify_email(corrected_email)
-        if result == "no_server_response":
-            results["no_server_response"].append(email)
-        elif result == "server_block":
-            results["server_block"].append(email)
-        elif result in VALID_CODES:
-            results["valid"].append(email)
+        domain = corrected_email.split('@')[1]
+        if domain in ["aol.com", "yahoo.com"]:
+            if AOL_YAHOO_POLICY == "valid":
+                results["valid"].append(email)
+            else:
+                results["invalid"].append(email)
+            results["all"].append({
+                "Email": email,
+                "Corrected Email": corrected_email,
+                "MX Record": None,
+                "SMTP Handshake": None,
+                "SMTP FROM": None,
+                "SMTP RCPT": None,
+                "Interpretation": AOL_YAHOO_POLICY
+            })
         else:
-            results["invalid"].append(email)
-        results["all"].append({
-            "Email": email,
-            "Corrected Email": corrected_email,
-            "MX Record": mx_record,
-            "SMTP Handshake": from_response,
-            "SMTP FROM": from_response,
-            "SMTP RCPT": to_response,
-            "Interpretation": result
-        })
+            result, mx_record, from_response, to_response = verify_email(corrected_email)
+            if result == "no_server_response":
+                results["no_server_response"].append(email)
+            elif result == "server_block":
+                results["server_block"].append(email)
+            elif result in VALID_CODES:
+                results["valid"].append(email)
+            else:
+                results["invalid"].append(email)
+            results["all"].append({
+                "Email": email,
+                "Corrected Email": corrected_email,
+                "MX Record": mx_record,
+                "SMTP Handshake": from_response,
+                "SMTP FROM": from_response,
+                "SMTP RCPT": to_response,
+                "Interpretation": result
+            })
 
 # Main function to handle CSV import/export and threading
 def main():
+    load_mx_records()
+
     emails = []
     with open("emails.csv", newline='') as csvfile:
         reader = csv.DictReader(csvfile)
@@ -165,8 +206,10 @@ def main():
 
     # Lookup and cache MX records before verification
     domains = {email.split('@')[1] for email in emails}
-    for domain in tqdm(domains, desc="Looking up MX records", ncols=100):
-        get_mx_record(domain)
+    domains_to_lookup = domains - mx_record_cache.keys() if not REFRESH_MX_RECORDS else domains
+
+    for domain in tqdm(domains_to_lookup, desc="Looking up MX records", ncols=100):
+        get_mx_records(domain)
 
     results = defaultdict(list)
     pbar = tqdm(total=len(emails), desc="Verifying emails", ncols=100)
@@ -207,6 +250,8 @@ def main():
                 "SMTP RCPT": entry["SMTP RCPT"],
                 "Interpretation": entry["Interpretation"]
             })
+
+    save_mx_records()
 
     total_emails = len(emails)
     for category, emails in results.items():
